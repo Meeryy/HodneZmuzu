@@ -1,0 +1,5 @@
+READ.ME
+
+If you want to use the program on your database, modify UserConfig.
+
+DO NOT MODIFY DEFAULT CONFIG UNLESS SAID OTHERWISE

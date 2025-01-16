@@ -1,0 +1,356 @@
+η  - éta Řešení musí využívat buď DAO, TableGateway nebo Repository pattern
+
+2x pohled (view)
+Enum - Will do Genres table?
+Tohle to umelo naposledy
+Do aplikace naprogramovat minimálně jedno použití transakce nad více než jednou tabulkou. Například převod kreditních bodů mezi dvěma účty apod.
+Pomocí aplikace generovat souhrnný report, který bude obsahovat smysluplná agregovaná data z alespoň tří tabulek. Např. různé počty položek, součty, minima a maxima, apod.
+Umožnit nastavovat program v konfiguračním souboru.
+
+O tohle se snazim
+Umožnit import dat do min. dvou tabulek z formátu CSV, XML nebo JSON.
+
+Ošetřit vstupy a připravit chybové hlášky a postupy pro všechna možná selhání, včetně chyb konfigurace, chyb zadání nebo chyb spojení s databází
+
+Kromě zdrojového kódu k programu musíte zpracovat také min. 3x testovací scénář a 1x dokumentaci:
+
+1x Testovací scénář ve formátu PDF (.pdf) pro spuštění aplikace, včetně nastavení a importu databázové struktury.
+
+min. 2x Testovací scénáře ve formátu PDF (.pdf) podle kterých můžeme otestovat všechny výše uvedené body, včetně všech druhů chyb a možností konfigurace. V případě všech možných chyb musí program rozumným způsobem reagovat, nebo vyžadovat součinnost uživatele k vyřešení problému. To je třeba podchytit v testovacích scénářích.
+
+1x dokumentaci, která bude obsahovat vše z Příloha 1 - Checklist v českém nebo anglickém jazyce
+
+
+
+
+
+
+
+
+
+To create an enum equivalent in SQL Server Management Studio (SSMS), you can use a `CHECK` constraint on a column to limit the values that can be stored in that column, as SQL Server does not have a built-in ENUM type like some other databases (e.g., MySQL).
+
+Here’s how you can do this for the `Genre` column in your `Books` table:
+
+1. **Define the CHECK Constraint**: When creating the `Books` table, you can specify a `CHECK` constraint that restricts the values of the `Genre` column to a specific set of allowed values.
+
+2. **Create the Books Table with CHECK Constraint**:
+
+```sql
+CREATE TABLE Books (
+    BookID INT PRIMARY KEY,
+    Title VARCHAR(255) NOT NULL,
+    Genre VARCHAR(50) NOT NULL CHECK (Genre IN ('Fiction', 'Non-Fiction', 'Science', 'Fantasy', 'Biography', 'Mystery', 'Romance', 'Thriller')),
+    ISBN VARCHAR(20) NOT NULL,
+    PublishedDate DATE NOT NULL,
+    AvailableCopies INT NOT NULL
+);
+```
+
+In the example above, the `Genre` column can only accept one of the specified values ('Fiction', 'Non-Fiction', 'Science', 'Fantasy', 'Biography', 'Mystery', 'Romance', 'Thriller'). If an attempt is made to insert a value that is not in this list, the database will throw an error.
+
+3. **Alternative Approach Using a Lookup Table**: Another way to manage enumerated types is to create a separate table for genres. This allows for more flexibility and easier management of the values:
+
+```sql
+CREATE TABLE Genres (
+    GenreID INT PRIMARY KEY,
+    GenreName VARCHAR(50) NOT NULL UNIQUE
+);
+
+INSERT INTO Genres (GenreID, GenreName) VALUES
+(1, 'Fiction'),
+(2, 'Non-Fiction'),
+(3, 'Science'),
+(4, 'Fantasy'),
+(5, 'Biography'),
+(6, 'Mystery'),
+(7, 'Romance'),
+(8, 'Thriller');
+
+CREATE TABLE Books (
+    BookID INT PRIMARY KEY,
+    Title VARCHAR(255) NOT NULL,
+    GenreID INT NOT NULL,
+    ISBN VARCHAR(20) NOT NULL,
+    PublishedDate DATE NOT NULL,
+    AvailableCopies INT NOT NULL,
+    FOREIGN KEY (GenreID) REFERENCES Genres(GenreID)
+);
+```
+
+In this alternative approach, you create a `Genres` table that holds the possible genres, and then you reference this table in the `Books` table via a foreign key (`GenreID`). This allows you to easily add or remove genres without altering the `Books` table.
+
+### Summary
+- Use a `CHECK` constraint to create an enum-like behavior in SQL Server.
+- Alternatively, create a lookup table for more flexibility and easier management.
+
+# main.py
+
+from config_loader import load_user_config, load_default_config, get_final_config
+
+def main():
+    # First, try to load the user configuration.
+    user_config = load_user_config()
+
+    # If user configuration loading failed, load the default configuration.
+    if user_config is None:
+        default_config = load_default_config()
+    else:
+        default_config = user_config
+
+    # Get the final configuration by combining the user config and the default config.
+    final_config = get_final_config(user_config if user_config else default_config, default_config)
+
+    # Construct the connection string.
+    connection_string = (
+        f"SERVER={final_config.get('server')};"
+        f"DATABASE={final_config.get('database','eta')};"
+        f"UID={final_config.get('username','ShelfSniffer')};"
+        f"PWD={final_config.get('password','123123')};"
+        f"DRIVER={final_config.get('driver', '{ODBC Driver 17 for SQL Server}')};"
+    )
+    
+    print("Connection String:", connection_string)
+    # Here you can use the connection string to connect to your database
+
+if __name__ == "__main__":
+    main()
+
+
+import pymysql
+
+# Připojení k databázi
+connection = pymysql.connect(
+    host='your_host',
+    user='your_user',
+    password='your_password',
+    database='your_db'
+)
+
+try:
+    with connection.cursor() as cursor:
+        # Zavolání uložené procedury
+        cursor.callproc('alpha')
+        connection.commit()  # Potvrzení transakce
+except Exception as e:
+    print(f"Došlo k chybě: {e}")
+    connection.rollback()  # Vrátí transakci, pokud došlo k chybě
+finally:
+    connection.close()
+
+
+Vytvoření knihovního management systému (Library Management System) splňujícího výše uvedené požadavky je skvělý projekt. Zde je návrh, jak by takový systém mohl vypadat, včetně implementace transakcí, reportů, importu dat a ošetření chyb:
+
+### 1. Použití transakcí
+
+Představme si scénář, kdy uživatel může převést kreditní body mezi dvěma uživatelskými účty. Tato transakce bude zahrnovat dvě tabulky: `Users` (uživatelé) a `Transactions` (transakce). 
+
+```sql
+BEGIN TRANSACTION;
+
+UPDATE Users SET credit_points = credit_points - :amount WHERE user_id = :from_user_id;
+UPDATE Users SET credit_points = credit_points + :amount WHERE user_id = :to_user_id;
+
+INSERT INTO Transactions (from_user_id, to_user_id, amount, transaction_date) 
+VALUES (:from_user_id, :to_user_id, :amount, NOW());
+
+COMMIT;
+```
+
+### 2. Generování souhrnného reportu
+
+Souhrnný report může zahrnovat informace z tabulek `Users`, `Transactions` a `Books`. Například by mohl obsahovat celkový počet uživatelů, součet kreditních bodů a průměrný počet knih, které si uživatelé půjčili.
+
+```sql
+SELECT 
+    COUNT(DISTINCT u.user_id) AS total_users,
+    SUM(u.credit_points) AS total_credit_points,
+    AVG(b.borrow_count) AS average_borrows
+FROM 
+    Users u
+LEFT JOIN 
+    (SELECT user_id, COUNT(*) AS borrow_count FROM Transactions GROUP BY user_id) b ON u.user_id = b.user_id;
+```
+
+### 3. Import dat do tabulek
+
+Můžeme implementovat funkce pro import dat z CSV nebo JSON. Například pro CSV import:
+
+```python
+import csv
+import sqlite3
+
+def import_users_from_csv(file_path):
+    connection = sqlite3.connect('library.db')
+    cursor = connection.cursor()
+    
+    with open(file_path, mode='r') as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            cursor.execute('INSERT INTO Users (user_id, name, credit_points) VALUES (?, ?, ?)',
+                           (row['user_id'], row['name'], row['credit_points']))
+    
+    connection.commit()
+    connection.close()
+```
+
+### 4. Konfigurační soubor
+
+Můžete použít formát JSON nebo YAML pro konfigurační soubor, který bude obsahovat informace o připojení k databázi a dalších parametrech.
+
+`config.json`:
+```json
+{
+    "database": {
+        "host": "localhost",
+        "port": 5432,
+        "username": "user",
+        "password": "password",
+        "database_name": "library"
+    }
+}
+```
+
+### 5. Ošetření chyb
+
+Je důležité ošetřit možné chyby a výjimky. Například:
+
+```python
+try:
+    connection = sqlite3.connect('library.db')
+except sqlite3.Error as e:
+    print(f"Chyba při připojení k databázi: {e}")
+
+try:
+    # Vykonání dotazu
+except Exception as e:
+    print(f"Chyba při vykonání dotazu: {e}")
+```
+
+### Závěr
+
+Tento návrh pokrývá základní funkcionalitu požadovanou pro knihovní management systém. Můžete tuto strukturu rozšířit o další funkce, jako je správa knih, správa výpůjček, notifikace pro uživatele atd. Důležité je také testování a optimalizace celého systému.
+
+
+--- dodej do zdroj at je spoko Mandik
+Tabulky
+Authors, Borrowers, Transactions, Books, Ownership, 
+
+READ.ME 
+
+
+Speaking of errors
+
+Bacha pokud nebude internet nen9 ani database do read.me
+Error: ('08001', '[08001] [Microsoft][ODBC Driver 17 for SQL Server]TCP Provider: The wait operation timed out.\r\n (258) (SQLDriverConnect); [08001] [Microsoft][ODBC Driver 17 for SQL Server]Login timeout expired (0); [08001] [Microsoft][ODBC Driver 17 for SQL Server]A network-related or instance-specific error has occurred while establishing a connection to SQL Server. Server is not found or not accessible. Check if instance name is correct and if SQL Server is configured to allow remote connections. For more information see SQL Server Books Online. (258)')
+
+Use a b c or d options like fr there is no other options this app is anti-dumb
+
+In case of changing db - Trigger on books where IsAvailable is updated when Available becomes 0
+
+
+In case of expanding the app or db you can set a trigger for borrowers table to set IsActive attribute to false after account haven't been used for a certain period of time
+
+
+
+Triggers used 
+
+
+Trigger to control availability of books
+CREATE TRIGGER trg_UpdateIsAvailable
+ON Books
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    UPDATE b
+    SET IsAvailable = CASE 
+                          WHEN i.AvalaibleCopies = 0 THEN 0
+                          ELSE 1
+                      END
+    FROM Books b
+    INNER JOIN inserted i ON b.BooksId = i.BooksId
+    WHERE b.AvalaibleCopies <> i.AvalaibleCopies; -- Ensure we only update if there's a change
+END;
+
+
+select * from Borrowers;
+SELECT 
+    b.Title AS BookTitle,
+    a.Name AS AuthorName,
+    b.GenreId AS Genre,
+    b.PublishedDate AS PublicationDate,
+    CASE 
+        WHEN b.IsAvailable = 1 THEN 'Dostupná'
+        ELSE 'Nedostupná'
+    END AS Availability
+FROM 
+    Ownership o
+JOIN 
+    Books b ON o.BooksId = b.BooksId
+JOIN 
+    Authors a ON o.AuthorsId = a.AuthId 
+ORDER BY 
+    b.Title;  -- You can order by any other column as needed
+
+
+
+
+Trigger for making username in case user forgets to fill out their credentials
+CREATE TRIGGER trg_SetUsername
+ON Borrowers
+INSTEAD OF INSERT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    INSERT INTO Borrowers (Name, Surname, Registration, IsActive, Username)
+    SELECT 
+        i.Name,
+        i.Surname,
+        i.Registration,  -- Ensure Registration is provided
+        ISNULL(i.IsActive, 1),  -- Default to active if not specified
+        CASE 
+            WHEN i.Username IS NULL OR i.Username = '' THEN 
+                -- Generate a username based on Name and Surname
+                LEFT(i.Name, 3) + LEFT(i.Surname, 3) + CAST(NEWID() AS VARCHAR(36))  -- Adding uniqueness
+            ELSE 
+                i.Username 
+        END
+    FROM inserted i;
+END;
+
+
+Originalni zadani
+Musíte použít skutečný relační databázový systém (případně objektově-relační, nelze ale použít jiné typy databází nebo SQLite)
+Aplikace musí pracovat s databází, která obsahuje minimálně: 5x tabulek (včetně vazebních), 2x pohled (view), 1x vazba M:N
+Mezi atributy tabulek musí být minimálně 1x zastoupen každý z datových typů: Reálné číslo (float), Logická hodnota (bool nebo ekvivalent), Výčet (enum), Řetězec (string, varchar), Datum nebo čas (datetime, date, time).
+Musíte umožnit vložení, smazání, zobrazení a úpravu nějaké informace, která se ukládá do více než jedné tabulky. Například vložení objednávky, která se na úrovni databáze rozloží do tabulek objednavka, zakaznik a polozky
+Do aplikace naprogramovat mininálně jedno použití transakce nad více než jednou tabulkou. Například převod kreditních bodů mezi dvěma účty apod.
+Pomocí aplikace generovat souhrnný report, který bude obsahovat smysluplná agregovaná data z alespoň tří tabulek. Např. různé počty položek, součty, minima a maxima, apod.
+Umožnit import dat do min. dvou tabulek z formátu CSV, XML nebo JSON.
+Umožnit nastavovat program v konfiguračním souboru.
+Ošetřit vstupy a připravit chybové hlášky a postupy pro všechna možná selhání, včetně chyb konfigurace, chyb zadání nebo chyb spojení s databází,
+Kromě zdrojového kódu k programu musíte zpracovat také min. 3x testovací scénář a 1x dokumentaci:
+
+1x Testovací scénář ve formátu PDF (.pdf) pro spuštění aplikace, včetně nastavení a importu databázové struktury.
+
+min. 2x Testovací scénáře ve formátu PDF (.pdf) podle kterých můžeme otestovat všechny výše uvedené body, včetně všech druhů chyb a možností konfigurace. V případě všech možných chyb musí program rozumným způsobem reagovat, nebo vyžadovat součinnost uživatele k vyřešení problému. To je třeba podchytit v testovacích scénářích.
+
+1x dokumentaci, která bude obsahovat vše z Příloha 1 - Checklist v českém nebo anglickém jazyce.
+
+Bez splnění hlavního úkolu η, θ, ι, κ, λ výše nebo nedodání min. 3 testovacích scénářů bude práce hodnocena známkou 5 - nedostatečný i přesto, že jinak bude funkční a třeba i dobře zpracovaná. V případě vynechání jednoho z bodů 1. až 9. bude známka snížena o dva stupně, tj. vynechání tří a více bodů povede ke známce 5 - nedostatečný. Dejte pozor na plagiáty a cizí kód, který když využijete je třeba uvést původního autora, zejména u knihoven a dalších balíčků.
+
+Odevzdání a testování
+Program se odevzdává na školním PC. Může, ale nemusí obsahovat unit testy, na místo toho musí obsahovat testovací scénáře pro testery. Tester je člověk, který bude aplikaci na školním PC testovat. Vaše práce pak bude hodnocena nejen učitelem ale i testerem právě dle scénářů a dokumentace. A to tak, že nejprve hodnotí tester a jen a pouze pokud budou testování dopadne uspokojivě, bude nahlíženo učitelem i do zdrojového kódu. Pokud ne, do zdrojového kódu nebudeme ani nahlížet a budeme hodnotit 5 - nedostatečný. Testování může provádět i jiný žák naší školy, externí tester nebo další přizvané osoby.
+
+Práci odevzdejte na moodle jako jeden ZIP archiv a připravte se na její prezentaci učitelúm PV na hodině a na školním PC. Projekt je dobré rozdělit do adresářů, například zdrojový kód do složky /src, dokumentaci do složky /doc a testy do složky /test, nebo jiným vhodným způsobem.
+ 
+Při odevzdání platí následující pravidla:
+Vaši práci musíte učiteli podrobně vysvětlit, odpovídat na případné dotazy a to jen s použitím Vašeho zdrojového kódu a Váši dokumentace.
+Váš program musí být spustitelný i bez použití IDE podle návodu na instalaci, například README nebo jiné dokumentace. Pozor na to, že práce potřebuje i import databáze.
+Prezentace musí proběhnout na školním PC, nelze odevzdávat na Vašem notebooku. Je ale možné se ze školního PC připojit pomocí sítě (např. internet) na Vaše servery, či jiná zařízení a nebo spouštět webové stránky, atd.
+
+
+
